@@ -25,7 +25,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Bedrock
 type ModelProvider string
 
 const (
@@ -33,6 +33,7 @@ const (
 	AzureOpenAI ModelProvider = "AzureOpenAI"
 	OpenAI      ModelProvider = "OpenAI"
 	Ollama      ModelProvider = "Ollama"
+	Bedrock     ModelProvider = "Bedrock"
 )
 
 // AnthropicConfig contains Anthropic-specific configuration options
@@ -146,12 +147,48 @@ type OllamaConfig struct {
 	Options map[string]string `json:"options,omitempty"`
 }
 
+// BedrockConfig contains AWS Bedrock-specific configuration options
+type BedrockConfig struct {
+	// AWS Region for Bedrock
+	// +required
+	Region string `json:"region,omitempty"`
+
+	// AWS Secret Key for authentication
+	// +optional
+	SecretKey string `json:"secretKey,omitempty"`
+
+	// Model ID for specific Bedrock model
+	// +optional
+	ModelID string `json:"modelId,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	Temperature string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP string `json:"topP,omitempty"`
+
+	// Top-k sampling parameter
+	// +optional
+	TopK int `json:"topK,omitempty"`
+
+	// Stop sequences to end generation
+	// +optional
+	StopSequences []string `json:"stopSequences,omitempty"`
+}
+
 // ModelConfigSpec defines the desired state of ModelConfig.
 //
 // +kubebuilder:validation:XValidation:message="provider.openAI must be nil if the provider is not OpenAI",rule="!(has(self.openAI) && self.provider != 'OpenAI')"
 // +kubebuilder:validation:XValidation:message="provider.anthropic must be nil if the provider is not Anthropic",rule="!(has(self.anthropic) && self.provider != 'Anthropic')"
 // +kubebuilder:validation:XValidation:message="provider.azureOpenAI must be nil if the provider is not AzureOpenAI",rule="!(has(self.azureOpenAI) && self.provider != 'AzureOpenAI')"
 // +kubebuilder:validation:XValidation:message="provider.ollama must be nil if the provider is not Ollama",rule="!(has(self.ollama) && self.provider != 'Ollama')"
+// +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 type ModelConfigSpec struct {
 	Model string `json:"model"`
 
@@ -182,6 +219,10 @@ type ModelConfigSpec struct {
 	// Ollama-specific configuration
 	// +optional
 	Ollama *OllamaConfig `json:"ollama,omitempty"`
+
+	// Bedrock-specific configuration
+	// +optional
+	Bedrock *BedrockConfig `json:"bedrock,omitempty"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

@@ -22,7 +22,7 @@ import { createModelConfig } from '@/app/actions/modelConfigs';
 import { ModelProviderCombobox } from '@/components/ModelProviderCombobox';
 import { PROVIDERS_INFO, isValidProviderInfoKey } from '@/lib/providers';
 
-const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "bedrock"] as const;
 const modelConfigSchema = z.object({
     providerName: z.enum(modelProviders, { required_error: "Please select a provider." }),
     configName: z.string().min(1, "Configuration name is required."),
@@ -160,6 +160,7 @@ export function ModelConfigStep({
             case 'openai': payload.openAI = {}; break;
             case 'anthropic': payload.anthropic = {}; break;
             case 'ollama': payload.ollama = {}; break;
+            case 'bedrock': payload.bedrock = {}; break;
         }
 
         try {

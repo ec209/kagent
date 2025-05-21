@@ -91,6 +91,16 @@ export interface OllamaConfigPayload {
     options?: Record<string, string>;
 }
 
+export interface BedrockConfigPayload {
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    temperature?: string;
+    topP?: string;
+    maxTokens?: number;
+    stopSequences?: string[];
+}
+
 export interface CreateModelConfigPayload {
   name: string;
   provider: Pick<Provider, "name" | "type">;
@@ -100,6 +110,7 @@ export interface CreateModelConfigPayload {
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
   ollama?: OllamaConfigPayload;
+  bedrock?: BedrockConfigPayload;
 }
 
 export interface UpdateModelConfigPayload {
@@ -110,4 +121,5 @@ export interface UpdateModelConfigPayload {
     anthropic?: AnthropicConfigPayload;
     azureOpenAI?: AzureOpenAIConfigPayload;
     ollama?: OllamaConfigPayload;
+    bedrock?: BedrockConfigPayload;
 }

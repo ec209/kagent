@@ -104,6 +104,36 @@ func (c *AnthropicClientConfiguration) FromConfig(config map[string]interface{})
 	return fromConfig(c, config)
 }
 
+type BedrockCreateArguments struct {
+	MaxTokens     int      `json:"max_tokens,omitempty"`
+	Temperature   float64  `json:"temperature,omitempty"`
+	TopP          float64  `json:"top_p,omitempty"`
+	TopK          int      `json:"top_k,omitempty"`
+	StopSequences []string `json:"stop_sequences,omitempty"`
+}
+
+type BedrockClientConfiguration struct {
+	APIKey            string            `json:"api_key,omitempty"`
+	SecretKey         string            `json:"secret_key,omitempty"`
+	Region            string            `json:"region,omitempty"`
+	Model             string            `json:"model"`
+	ModelID           string            `json:"model_id,omitempty"`
+	ModelCapabilities *ModelInfo        `json:"model_capabilities,omitempty"`
+	ModelInfo         *ModelInfo        `json:"model_info,omitempty"`
+	Timeout           int               `json:"timeout,omitempty"`
+	MaxRetries        int               `json:"max_retries,omitempty"`
+	DefaultHeaders    map[string]string `json:"default_headers,omitempty"`
+	BedrockCreateArguments
+}
+
+func (c *BedrockClientConfiguration) ToConfig() (map[string]interface{}, error) {
+	return toConfig(c)
+}
+
+func (c *BedrockClientConfiguration) FromConfig(config map[string]interface{}) error {
+	return fromConfig(c, config)
+}
+
 type OllamaCreateArguments struct {
 	Model string `json:"model"`
 	Host  string `json:"host"`

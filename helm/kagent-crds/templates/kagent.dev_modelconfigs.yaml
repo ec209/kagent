@@ -102,6 +102,38 @@ spec:
                 - apiVersion
                 - azureEndpoint
                 type: object
+              bedrock:
+                description: Bedrock-specific configuration
+                properties:
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  modelId:
+                    description: Model ID for specific Bedrock model
+                    type: string
+                  region:
+                    description: AWS Region for Bedrock
+                    type: string
+                  secretKey:
+                    description: AWS Secret Key for authentication
+                    type: string
+                  stopSequences:
+                    description: Stop sequences to end generation
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - region
+                type: object
               model:
                 type: string
               ollama:
@@ -158,6 +190,7 @@ spec:
                 - OpenAI
                 - AzureOpenAI
                 - Ollama
+                - Bedrock
                 type: string
             required:
             - model
@@ -172,6 +205,8 @@ spec:
               rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
             - message: provider.ollama must be nil if the provider is not Ollama
               rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.bedrock must be nil if the provider is not Bedrock
+              rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

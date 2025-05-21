@@ -28,6 +28,7 @@ interface ValidationErrors {
   name?: string;
   selectedCombinedModel?: string;
   apiKey?: string;
+  secretKey?: string;
   requiredParams?: Record<string, string>;
   optionalParams?: string;
 }
@@ -107,7 +108,9 @@ function ModelPageContent() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
   const [apiKey, setApiKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showSecretKey, setShowSecretKey] = useState(false);
   const [requiredParams, setRequiredParams] = useState<ModelParam[]>([]);
   const [optionalParams, setOptionalParams] = useState<ModelParam[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -122,6 +125,7 @@ function ModelPageContent() {
   const [errors, setErrors] = useState<ValidationErrors>({});
 
   const isOllamaSelected = selectedProvider?.type === "Ollama";
+  const isBedrockSelected = selectedProvider?.type === "Bedrock";
 
   useEffect(() => {
     let isMounted = true;
@@ -190,6 +194,7 @@ function ModelPageContent() {
           }
 
           setApiKey("");
+          setSecretKey("");
 
           const requiredKeys = provider?.requiredParams || [];
           const fetchedParams = modelData.modelParams || {};
@@ -278,9 +283,15 @@ function ModelPageContent() {
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
+    
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
     if (!isEditMode && !isOllamaNow && !apiKey.trim()) {
       newErrors.apiKey = "API key is required for new models (except Ollama)";
+    }
+
+    // Special validation for Bedrock
+    if (isBedrockSelected && !isEditMode && !secretKey.trim()) {
+      newErrors.secretKey = "Secret key is required for AWS Bedrock";
     }
 
     requiredParams.forEach(param => {
@@ -315,11 +326,7 @@ function ModelPageContent() {
       newErrors.optionalParams = "Duplicate optional parameter key detected";
     }
 
-    setErrors(newErrors);
-    const hasBaseErrors = !!newErrors.name || !!newErrors.selectedCombinedModel || !!newErrors.apiKey;
-    const hasRequiredParamErrors = Object.keys(newErrors.requiredParams || {}).length > 0;
-    const hasOptionalParamErrors = !!newErrors.optionalParams;
-    return !hasBaseErrors && !hasRequiredParamErrors && !hasOptionalParamErrors;
+    return newErrors;
   };
 
   const handleRequiredParamChange = (index: number, value: string) => {
@@ -343,88 +350,86 @@ function ModelPageContent() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedCombinedModel) {
-      setErrors(prev => ({...prev, selectedCombinedModel: "Provider and Model selection is required"}));
-      toast.error("Please select a Provider and Model.");
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0 || 
+        (validationErrors.requiredParams && Object.keys(validationErrors.requiredParams).length > 0) ||
+        validationErrors.optionalParams) {
+      setErrors(validationErrors);
+      toast.error("Please fix the errors in the form");
       return;
     }
 
-    const parts = selectedCombinedModel.split('::');
-    if (parts.length !== 2 || !isValidProviderInfoKey(parts[0])) {
-      toast.error("Invalid Provider/Model selection.");
-      return;
-    }
-    const providerKey = parts[0] as ModelProviderKey;
-    const modelName = parts[1];
-
-    const finalSelectedProvider = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
-
-    if (!validateForm() || !finalSelectedProvider) {
-      toast.error("Please fill in all required fields and correct any errors.");
-      return;
-    }
     setIsSubmitting(true);
-    setErrors({});
-
-    const payload: CreateModelConfigPayload = {
-      name: name.trim(),
-      provider: {
-        name: finalSelectedProvider.name,
-        type: finalSelectedProvider.type,
-      },
-      model: modelName,
-      apiKey: apiKey.trim(),
-    };
-
-    const providerParams = processModelParams(requiredParams, optionalParams);
-
-    const providerType = finalSelectedProvider.type;
-    switch (providerType) {
-      case 'OpenAI':
-        payload.openAI = providerParams as OpenAIConfigPayload;
-        break;
-      case 'Anthropic':
-        payload.anthropic = providerParams as AnthropicConfigPayload;
-        break;
-      case 'AzureOpenAI':
-        payload.azureOpenAI = providerParams as AzureOpenAIConfigPayload;
-        break;
-      case 'Ollama':
-        payload.ollama = providerParams as OllamaConfigPayload;
-        break;
-      default:
-        console.error("Unsupported provider type during payload construction:", providerType);
-        toast.error("Internal error: Unsupported provider type.");
-        setIsSubmitting(false);
-        return;
-    }
+    setError(null);
 
     try {
-      let response;
-      if (isEditMode && modelId) {
-        const updatePayload: UpdateModelConfigPayload = {
-          provider: payload.provider,
-          model: payload.model,
-          apiKey: apiKey.trim() ? apiKey.trim() : null,
-          openAI: payload.openAI,
-          anthropic: payload.anthropic,
-          azureOpenAI: payload.azureOpenAI,
-          ollama: payload.ollama,
-        };
-        response = await updateModelConfig(modelId, updatePayload);
-      } else {
-        response = await createModelConfig(payload);
+      const parts = selectedCombinedModel!.split('::');
+      const providerKey = parts[0] as ModelProviderKey;
+      const modelName = parts[1];
+      
+      const finalSelectedProvider = providers.find(p => getProviderFormKey(p.type as BackendModelProviderType) === providerKey);
+      if (!finalSelectedProvider) {
+        throw new Error("Provider not found");
       }
 
-      if (response.success) {
-        toast.success(`Model configuration ${isEditMode ? 'updated' : 'created'} successfully!`);
-        router.push("/models");
-      } else {
-        throw new Error(response.error || "Failed to save model configuration");
+      const modelParams = processModelParams(requiredParams, optionalParams);
+      
+      // Handle Bedrock secretKey special case
+      if (isBedrockSelected && secretKey) {
+        modelParams.secretKey = secretKey;
       }
+
+      const payload: CreateModelConfigPayload = {
+        name,
+        model: modelName,
+        provider: {
+          name: finalSelectedProvider.name,
+          type: finalSelectedProvider.type
+        },
+        apiKey: "", // Will be updated if there's a valid key
+      };
+
+      // Only add apiKey to payload if it exists and isn't empty
+      const trimmedApiKey = apiKey.trim();
+      if (trimmedApiKey) {
+        payload.apiKey = trimmedApiKey;
+      }
+      
+      // Set the provider-specific config based on the provider type
+      if (finalSelectedProvider.type === "OpenAI") {
+        payload.openAI = modelParams;
+      } else if (finalSelectedProvider.type === "Anthropic") {
+        payload.anthropic = modelParams;
+      } else if (finalSelectedProvider.type === "AzureOpenAI") {
+        // For Azure, ensure required fields are present
+        // Check if azureEndpoint and apiVersion are in the modelParams
+        if (modelParams.azureEndpoint && modelParams.apiVersion) {
+          payload.azureOpenAI = modelParams as AzureOpenAIConfigPayload;
+        } else {
+          // If the required fields are missing, we need to handle that case
+          // Here, we'll use a minimal implementation with empty strings for required fields
+          payload.azureOpenAI = {
+            azureEndpoint: modelParams.azureEndpoint || "",
+            apiVersion: modelParams.apiVersion || "",
+            ...modelParams
+          };
+        }
+      } else if (finalSelectedProvider.type === "Ollama") {
+        payload.ollama = modelParams;
+      }
+
+      const response = isEditMode && modelId
+        ? await updateModelConfig(modelId, payload)
+        : await createModelConfig(payload);
+
+      if (!response.success) {
+        throw new Error(response.error || "Failed to save model");
+      }
+
+      toast.success(`Model ${isEditMode ? 'updated' : 'created'} successfully`);
+      router.push("/models");
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "An unexpected error occurred";
-      console.error("Submission error:", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to save model";
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -482,14 +487,19 @@ function ModelPageContent() {
 
           <AuthSection
             isOllamaSelected={isOllamaSelected}
+            isBedrockSelected={isBedrockSelected}
             isEditMode={isEditMode}
             apiKey={apiKey}
+            secretKey={secretKey}
             showApiKey={showApiKey}
+            showSecretKey={showSecretKey}
             errors={errors}
             isSubmitting={isSubmitting}
             isLoading={isLoading}
             onApiKeyChange={setApiKey}
+            onSecretKeyChange={setSecretKey}
             onToggleShowApiKey={() => setShowApiKey(!showApiKey)}
+            onToggleShowSecretKey={() => setShowSecretKey(!showSecretKey)}
             selectedProvider={selectedProvider}
           />
 

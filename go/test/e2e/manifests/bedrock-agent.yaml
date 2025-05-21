@@ -1,0 +1,16 @@
+apiVersion: kagent.dev/v1alpha1
+kind: Agent
+metadata:
+  name: bedrock-agent
+  namespace: team-ns
+spec:
+  description: "AI agent using AWS Bedrock (Claude)"
+  displayName: "Bedrock Claude Agent"
+  modelConfigRef: bedrock-model-config
+  systemMessage: |
+    You are a helpful AI assistant powered by AWS Bedrock Claude model.
+    You are knowledgeable, accurate, and friendly.
+    When you don't know something, you admit it rather than making up information.
+status:
+  conditions: null
+  observedGeneration: 0 

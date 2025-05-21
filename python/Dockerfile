@@ -90,6 +90,9 @@ RUN chown -R python:pythongroup /app/python && \
 RUN mkdir -p /app/python/.cache/uv && \
     chown -R python:pythongroup /app/python/.cache
 
+# Install boto3 for AWS Bedrock support
+RUN uv pip install boto3
+
 EXPOSE 8081
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent

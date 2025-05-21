@@ -31,6 +31,7 @@ func (h *ProviderHandler) HandleListSupportedProviders(w ErrorResponseWriter, r 
 		{v1alpha1.Anthropic, reflect.TypeOf(v1alpha1.AnthropicConfig{})},
 		{v1alpha1.AzureOpenAI, reflect.TypeOf(v1alpha1.AzureOpenAIConfig{})},
 		{v1alpha1.Ollama, reflect.TypeOf(v1alpha1.OllamaConfig{})},
+		{v1alpha1.Bedrock, reflect.TypeOf(v1alpha1.BedrockConfig{})},
 	}
 
 	providersResponse := []map[string]interface{}{}

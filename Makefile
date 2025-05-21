@@ -11,14 +11,13 @@ APP_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-# Retagged image variables for kind loading; the Helm chart uses these
+# Retagged image variables for minikube; the Helm chart uses these
 RETAGGED_DOCKER_REGISTRY = cr.kagent.dev
 RETAGGED_CONTROLLER_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 RETAGGED_UI_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 RETAGGED_APP_IMG = $(RETAGGED_DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-DOCKER_BUILDER ?= docker
+DOCKER_BUILDER ?= podman
 DOCKER_BUILD_ARGS ?=
-KIND_CLUSTER_NAME ?= kagent
 
 # Check if OPENAI_API_KEY is set
 check-openai-key:
@@ -29,10 +28,6 @@ check-openai-key:
 	fi
 
 # Build targets
-
-.PHONY: create-kind-cluster
-create-kind-cluster:
-	kind create cluster --name $(KIND_CLUSTER_NAME)
 
 .PHONY: build
 build: build-controller build-ui build-app
@@ -55,7 +50,7 @@ build-controller: controller-manifests
 
 .PHONY: release-controller
 release-controller: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
-release-controller: DOCKER_BUILDER = docker buildx
+release-controller: DOCKER_BUILDER = podman
 release-controller: build-controller
 
 .PHONY: build-ui
@@ -65,7 +60,7 @@ build-ui:
 
 .PHONY: release-ui
 release-ui: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
-release-ui: DOCKER_BUILDER = docker buildx
+release-ui: DOCKER_BUILDER = podman
 release-ui: build-ui
 
 .PHONY: build-app
@@ -74,30 +69,44 @@ build-app:
 
 .PHONY: release-app
 release-app: DOCKER_BUILD_ARGS += --push --platform linux/amd64,linux/arm64
-release-app: DOCKER_BUILDER = docker buildx
+release-app: DOCKER_BUILDER = podman
 release-app: build-app
 
-.PHONY: kind-load-docker-images
-kind-load-docker-images: retag-docker-images
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_CONTROLLER_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_UI_IMG)
-	kind load docker-image --name $(KIND_CLUSTER_NAME) $(RETAGGED_APP_IMG)
+.PHONY: minikube-load-images
+minikube-load-images: retag-docker-images
+	@echo "Saving images to temporary files..."
+	podman save $(RETAGGED_CONTROLLER_IMG) -o /tmp/controller-image.tar
+	podman save $(RETAGGED_UI_IMG) -o /tmp/ui-image.tar
+	podman save $(RETAGGED_APP_IMG) -o /tmp/app-image.tar
+	@echo "Loading images into minikube..."
+	minikube image load /tmp/controller-image.tar
+	minikube image load /tmp/ui-image.tar
+	minikube image load /tmp/app-image.tar
+	@echo "Cleaning up temporary files..."
+	rm -f /tmp/controller-image.tar /tmp/ui-image.tar /tmp/app-image.tar
 
 .PHONY: retag-docker-images
 retag-docker-images: build
-	docker tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
-	docker tag $(UI_IMG) $(RETAGGED_UI_IMG)
-	docker tag $(APP_IMG) $(RETAGGED_APP_IMG)
+	podman tag $(CONTROLLER_IMG) $(RETAGGED_CONTROLLER_IMG)
+	podman tag $(UI_IMG) $(RETAGGED_UI_IMG)
+	podman tag $(APP_IMG) $(RETAGGED_APP_IMG)
 
 .PHONY: helm-version
 helm-version:
-	VERSION=$(VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
-	helm package helm/kagent-crds
+	@# Convert Git hash to semver-compatible format and ensure there's valid content after prefix
+	@export CLEAN_VERSION=$$(echo "${VERSION}" | sed 's/-dirty//g'); \
+	if [ -z "$$CLEAN_VERSION" ]; then \
+		export VERSION="0.0.0-dev"; \
+	else \
+		export VERSION="0.0.0-$$CLEAN_VERSION"; \
+	fi; \
+	envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml; \
+	envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml; \
+	helm package helm/kagent-crds; \
 	helm package helm/kagent
 
 .PHONY: helm-install
-helm-install: helm-version check-openai-key kind-load-docker-images
+helm-install: helm-version check-openai-key minikube-load-images
 	helm upgrade --install kagent-crds helm/kagent-crds \
 		--namespace kagent \
 		--create-namespace \
@@ -123,3 +132,14 @@ helm-uninstall:
 helm-publish: helm-version
 	helm push kagent-crds-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
 	helm push kagent-$(VERSION).tgz oci://ghcr.io/kagent-dev/kagent/helm
+
+.PHONY: bedrock-image
+bedrock-image:
+	@echo "Building Kagent image with Bedrock support..."
+	VERSION=5305f81-dirty make build-app
+	@echo "Setting up Helm chart with the new image..."
+	VERSION=5305f81-dirty make helm-install
+	@echo "Bedrock integration complete!"
+	@echo "You can now check if Bedrock models are available with:"
+	@echo "kubectl -n kagent port-forward svc/kagent 8001:80 &"
+	@echo "curl -s http://127.0.0.1:8001/api/models | jq ."

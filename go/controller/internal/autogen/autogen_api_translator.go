@@ -965,6 +965,57 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 			Config:        api.MustToConfig(config),
 		}, nil
 
+	case v1alpha1.Bedrock:
+		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		config := &api.BedrockClientConfiguration{
+			APIKey: string(apiKey),
+			Model:  modelConfig.Spec.Model,
+		}
+
+		// Add provider-specific configurations
+		if modelConfig.Spec.Bedrock != nil {
+			bedrockConfig := modelConfig.Spec.Bedrock
+
+			config.Region = bedrockConfig.Region
+			config.SecretKey = bedrockConfig.SecretKey
+			config.ModelID = bedrockConfig.ModelID
+
+			if bedrockConfig.MaxTokens > 0 {
+				config.MaxTokens = bedrockConfig.MaxTokens
+			}
+
+			if bedrockConfig.Temperature != "" {
+				temp, err := strconv.ParseFloat(bedrockConfig.Temperature, 64)
+				if err == nil {
+					config.Temperature = temp
+				}
+			}
+
+			if bedrockConfig.TopP != "" {
+				topP, err := strconv.ParseFloat(bedrockConfig.TopP, 64)
+				if err == nil {
+					config.TopP = topP
+				}
+			}
+
+			config.TopK = bedrockConfig.TopK
+
+			if len(bedrockConfig.StopSequences) > 0 {
+				config.StopSequences = bedrockConfig.StopSequences
+			}
+		}
+
+		return &api.Component{
+			Provider:      "autogen_ext.models.bedrock.BedrockChatCompletionClient",
+			ComponentType: "model",
+			Version:       1,
+			Config:        api.MustToConfig(config),
+		}, nil
+
 	case v1alpha1.OpenAI:
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
 		if err != nil {

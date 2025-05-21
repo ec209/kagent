@@ -236,12 +236,64 @@ export interface TextMessageTerminationConfig {
   source: string;
 }
 
+export interface AnthropicCreateArguments {
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  stop_sequences?: string[];
+  metadata?: Record<string, string>;
+}
+
+export interface AnthropicClientConfig extends AnthropicCreateArguments {
+  api_key: string;
+  base_url?: string;
+  model: string;
+  model_capabilities?: any;
+  model_info?: ModelInfo;
+  timeout?: number;
+  max_retries?: number;
+  default_headers?: Record<string, string>;
+}
+
+export interface BedrockCreateArguments {
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  stop_sequences?: string[];
+}
+
+export interface BedrockClientConfig extends BedrockCreateArguments {
+  api_key: string;
+  secret_key?: string;
+  region: string;
+  model: string;
+  model_id?: string;
+  model_capabilities?: any;
+  model_info?: ModelInfo;
+  timeout?: number;
+  max_retries?: number;
+  default_headers?: Record<string, string>;
+}
+
+export interface OllamaClientConfig {
+  model: string;
+  host: string;
+  follow_redirects?: boolean;
+  timeout?: number;
+  headers?: Record<string, string>;
+  model_capabilities?: any;
+  model_info?: ModelInfo;
+  options?: Record<string, string>;
+}
+
 // Config type unions based on provider
 export type TeamConfig = SelectorGroupChatConfig | RoundRobinGroupChatConfig | TaskAgentConfig;
 
 export type AgentConfig = MultimodalWebSurferConfig | AssistantAgentConfig | UserProxyAgentConfig | TaskAgentConfig;
 
-export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig;
+export type ModelConfig = OpenAIClientConfig | AzureOpenAIClientConfig | AnthropicClientConfig | BedrockClientConfig | OllamaClientConfig;
 
 export type ToolConfig = FunctionToolConfig | MCPToolConfig | BuiltInToolConfig;
 

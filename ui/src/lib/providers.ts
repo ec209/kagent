@@ -1,6 +1,5 @@
-
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama";
-export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Bedrock";
+export const modelProviders = ["openai", "azure-openai", "anthropic", "ollama", "bedrock"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -41,6 +40,13 @@ export const PROVIDERS_INFO: {
         modelDocsLink: "https://github.com/kagent-dev/autogen/blob/main/python/packages/autogen-ext/src/autogen_ext/models/ollama/_model_info.py",
         help: "No API key needed. Ensure Ollama is running and accessible."
     },
+    bedrock: {
+        name: "AWS Bedrock",
+        type: "Bedrock",
+        apiKeyLink: "https://console.aws.amazon.com/iam/home#/security_credentials",
+        modelDocsLink: "https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html",
+        help: "Provide your AWS access key and secret key. Ensure your IAM user has Bedrock access permissions."
+    },
 };
 
 export const isValidProviderInfoKey = (key: string): key is ModelProviderKey => {
@@ -54,6 +60,7 @@ export const getApiKeyForProviderFormKey = (providerFormKey: ModelProviderKey): 
         case 'azure-openai': return 'azureOpenAI';
         case 'anthropic': return 'anthropic';
         case 'ollama': return 'ollama';
+        case 'bedrock': return 'bedrock';
         default: return providerFormKey;
     }
 };

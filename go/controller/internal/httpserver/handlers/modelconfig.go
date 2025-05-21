@@ -103,6 +103,9 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		if config.Spec.Ollama != nil {
 			flattenStructToMap(config.Spec.Ollama, modelParams)
 		}
+		if config.Spec.Bedrock != nil {
+			flattenStructToMap(config.Spec.Bedrock, modelParams)
+		}
 
 		responseItem := ModelConfigResponse{
 			Name:            config.Name,
@@ -161,6 +164,9 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	if modelConfig.Spec.Ollama != nil {
 		flattenStructToMap(modelConfig.Spec.Ollama, modelParams)
 	}
+	if modelConfig.Spec.Bedrock != nil {
+		flattenStructToMap(modelConfig.Spec.Bedrock, modelParams)
+	}
 
 	responseItem := ModelConfigResponse{
 		Name:            modelConfig.Name,
@@ -199,7 +205,7 @@ func getRequiredKeys(providerType v1alpha1.ModelProvider) []string {
 	case v1alpha1.AzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama:
+	case v1alpha1.OpenAI, v1alpha1.Anthropic, v1alpha1.Ollama, v1alpha1.Bedrock:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
 	default:
@@ -217,6 +223,7 @@ type CreateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	BedrockParams   *v1alpha1.BedrockConfig     `json:"bedrock,omitempty"`
 }
 
 type Provider struct {
@@ -331,6 +338,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in create.")
 		}
+	case v1alpha1.Bedrock:
+		if req.BedrockParams != nil {
+			modelConfig.Spec.Bedrock = req.BedrockParams
+			log.V(1).Info("Assigned Bedrock params to spec")
+		} else {
+			log.V(1).Info("No Bedrock params provided in create.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type: %s", req.Provider.Type)
 	}
@@ -375,6 +389,7 @@ type UpdateModelConfigRequest struct {
 	AnthropicParams *v1alpha1.AnthropicConfig   `json:"anthropic,omitempty"`
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
+	BedrockParams   *v1alpha1.BedrockConfig     `json:"bedrock,omitempty"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -502,6 +517,13 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		} else {
 			log.V(1).Info("No Ollama params provided in update.")
 		}
+	case v1alpha1.Bedrock:
+		if req.BedrockParams != nil {
+			modelConfig.Spec.Bedrock = req.BedrockParams
+			log.V(1).Info("Assigned updated Bedrock params to spec")
+		} else {
+			log.V(1).Info("No Bedrock params provided in update.")
+		}
 	default:
 		providerConfigErr = fmt.Errorf("unsupported provider type specified: %s", req.Provider.Type)
 	}
@@ -528,6 +550,8 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		flattenStructToMap(modelConfig.Spec.AzureOpenAI, updatedParams)
 	} else if modelConfig.Spec.Ollama != nil {
 		flattenStructToMap(modelConfig.Spec.Ollama, updatedParams)
+	} else if modelConfig.Spec.Bedrock != nil {
+		flattenStructToMap(modelConfig.Spec.Bedrock, updatedParams)
 	}
 
 	responseItem := ModelConfigResponse{
