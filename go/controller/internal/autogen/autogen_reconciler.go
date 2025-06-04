@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
@@ -16,6 +17,8 @@ import (
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,16 +62,11 @@ func NewAutogenReconciler(
 }
 
 func (a *autogenReconciler) ReconcileAutogenAgent(ctx context.Context, req ctrl.Request) error {
-	// reconcile the agent team itself
-
-	// TODO(sbx0r): missing finalizer logic
-
 	agent := &v1alpha1.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
 		if errors.IsNotFound(err) {
 			return a.handleAgentDeletion(req)
 		}
-
 		return fmt.Errorf("failed to get agent %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
@@ -76,83 +74,42 @@ func (a *autogenReconciler) ReconcileAutogenAgent(ctx context.Context, req ctrl.
 }
 
 func (a *autogenReconciler) handleAgentDeletion(req ctrl.Request) error {
-	// TODO(sbx0r): handle deletion of agents with multiple teams assignment
-
-	// agents, err := a.findTeamsUsingAgent(ctx, req)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to find teams for agent %s/%s: %v", req.Namespace, req.Name, err)
-	// }
-	// if len(agents) > 1 {
-	// 	reconcileLog.Info("agent with multiple dependencies was deleted",
-	// 	"namespace", req.Namespace,
-	// 	"name", req.Name,
-	// 	"agents", agents)
-	// }
-
-	// TODO(sbx0r): temporary mock on GlobalUserID.
-	//              This block will be removed after resolving previous TODO
 	team, err := a.autogenClient.GetTeam(req.Name, GlobalUserID)
 	if err != nil {
-		return fmt.Errorf("failed to get agent on agent deletion %s/%s: %w",
-			req.Namespace, req.Name, err)
+		return fmt.Errorf("failed to get agent on deletion %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
 	if team != nil {
 		if err = a.autogenClient.DeleteTeam(team.Id, team.UserID); err != nil {
-			return fmt.Errorf("failed to delete agent %s/%s: %w",
-				req.Namespace, req.Name, err)
+			return fmt.Errorf("failed to delete agent %s/%s: %w", req.Namespace, req.Name, err)
 		}
 	}
 
-	reconcileLog.Info("Agent was deleted", "namespace", req.Namespace, "name", req.Name)
 	return nil
 }
 
 func (a *autogenReconciler) handleExistingAgent(ctx context.Context, agent *v1alpha1.Agent, req ctrl.Request) error {
-	isNewAgent := agent.Status.ObservedGeneration == 0
-	isUpdatedAgent := agent.Generation > agent.Status.ObservedGeneration
-
-	if isNewAgent {
-		reconcileLog.Info("New agent was created",
-			"namespace", req.Namespace,
-			"name", req.Name,
-			"generation", agent.Generation)
-	} else if isUpdatedAgent {
-		reconcileLog.Info("Agent was updated",
-			"namespace", req.Namespace,
-			"name", req.Name,
-			"oldGeneration", agent.Status.ObservedGeneration,
-			"newGeneration", agent.Generation)
-	}
-
 	if err := a.reconcileAgents(ctx, agent); err != nil {
-		return fmt.Errorf("failed to reconcile agent %s/%s: %w",
-			req.Namespace, req.Name, err)
+		return fmt.Errorf("failed to reconcile agent %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
 	teams, err := a.findTeamsUsingAgent(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to find teams for agent %s/%s: %w",
-			req.Namespace, req.Name, err)
+		return fmt.Errorf("failed to find teams for agent %s/%s: %w", req.Namespace, req.Name, err)
 	}
 
 	return a.reconcileAgentStatus(ctx, agent, a.reconcileTeams(ctx, teams...))
 }
 
 func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha1.Agent, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	status := metav1.ConditionTrue
+	reason := "AgentReconciled"
+	message := ""
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "AgentReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", agent)
-	} else {
-		status = metav1.ConditionTrue
-		reason = "AgentReconciled"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
@@ -163,7 +120,6 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 		Message:            message,
 	})
 
-	// update the status if it has changed or the generation has changed
 	if conditionChanged || agent.Status.ObservedGeneration != agent.Generation {
 		agent.Status.ObservedGeneration = agent.Generation
 		if err := a.kube.Status().Update(ctx, agent); err != nil {
@@ -176,7 +132,36 @@ func (a *autogenReconciler) reconcileAgentStatus(ctx context.Context, agent *v1a
 func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req ctrl.Request) error {
 	modelConfig := &v1alpha1.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
+		if errors.IsNotFound(err) {
+			reconcileLog.Info("ModelConfig deleted", "modelConfig", req.Name)
+			return nil
+		}
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
+	}
+
+	// Handle finalizer for secret cleanup
+	const finalizerName = "modelconfig.kagent.dev/secret-cleanup"
+	if modelConfig.DeletionTimestamp != nil {
+		// ModelConfig is being deleted, clean up secrets
+		if err := a.handleModelConfigDeletion(ctx, modelConfig, finalizerName); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Add finalizer if not present
+	if !hasFinalizer(modelConfig.Finalizers, finalizerName) {
+		modelConfig.Finalizers = append(modelConfig.Finalizers, finalizerName)
+		if err := a.kube.Update(ctx, modelConfig); err != nil {
+			return fmt.Errorf("failed to add finalizer: %v", err)
+		}
+	}
+
+	// If this is a Bedrock model, ensure the kagent deployment has access to the secret
+	if modelConfig.Spec.Provider == v1alpha1.Bedrock {
+		if err := a.reconcileKagentDeploymentForBedrock(ctx, modelConfig); err != nil {
+			return fmt.Errorf("failed to reconcile kagent deployment for Bedrock: %v", err)
+		}
 	}
 
 	agents, err := a.findAgentsUsingModel(ctx, req)
@@ -200,20 +185,149 @@ func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req
 	)
 }
 
+// reconcileKagentDeploymentForBedrock ensures the kagent deployment can access Bedrock secrets
+func (a *autogenReconciler) reconcileKagentDeploymentForBedrock(ctx context.Context, modelConfig *v1alpha1.ModelConfig) error {
+	deployment := &appsv1.Deployment{}
+	deploymentRef := types.NamespacedName{Name: "kagent", Namespace: modelConfig.Namespace}
+
+	if err := a.kube.Get(ctx, deploymentRef, deployment); err != nil {
+		if errors.IsNotFound(err) {
+			return nil // kagent deployment not found, skip
+		}
+		return fmt.Errorf("failed to get kagent deployment: %v", err)
+	}
+
+	// Check if secret exists
+	secretRef := types.NamespacedName{Name: modelConfig.Spec.APIKeySecretRef, Namespace: modelConfig.Namespace}
+	if err := a.kube.Get(ctx, secretRef, &corev1.Secret{}); err != nil {
+		if errors.IsNotFound(err) {
+			return nil // secret not found, skip
+		}
+		return fmt.Errorf("failed to get Bedrock secret: %v", err)
+	}
+
+	// Find containers and clean up secret mounting
+	var litellmContainer *corev1.Container
+	deploymentChanged := false
+
+	for i := range deployment.Spec.Template.Spec.Containers {
+		container := &deployment.Spec.Template.Spec.Containers[i]
+
+		if container.Name == "litellm" {
+			litellmContainer = container
+		} else {
+			// Remove Bedrock secrets from non-litellm containers
+			var cleanedEnvFrom []corev1.EnvFromSource
+			for _, envFrom := range container.EnvFrom {
+				if envFrom.SecretRef == nil || envFrom.SecretRef.Name != secretRef.Name {
+					cleanedEnvFrom = append(cleanedEnvFrom, envFrom)
+				} else {
+					deploymentChanged = true
+				}
+			}
+			container.EnvFrom = cleanedEnvFrom
+		}
+	}
+
+	if litellmContainer == nil {
+		return fmt.Errorf("litellm container not found in kagent deployment")
+	}
+
+	// Add secret to litellm container if not present
+	secretExists := false
+	for _, envFrom := range litellmContainer.EnvFrom {
+		if envFrom.SecretRef != nil && envFrom.SecretRef.Name == secretRef.Name {
+			secretExists = true
+			break
+		}
+	}
+
+	if !secretExists {
+		litellmContainer.EnvFrom = append(litellmContainer.EnvFrom, corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretRef.Name},
+			},
+		})
+		deploymentChanged = true
+	}
+
+	// Update deployment if changed
+	if deploymentChanged {
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations["kagent.dev/bedrock-secret-update"] = fmt.Sprintf("%d", time.Now().Unix())
+
+		if err := a.kube.Update(ctx, deployment); err != nil {
+			return fmt.Errorf("failed to update kagent deployment: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// handleModelConfigDeletion cleans up secrets when a ModelConfig is deleted
+func (a *autogenReconciler) handleModelConfigDeletion(ctx context.Context, modelConfig *v1alpha1.ModelConfig, finalizerName string) error {
+	// Delete the associated secret
+	if modelConfig.Spec.APIKeySecretRef != "" {
+		secret := &corev1.Secret{}
+		secretName := types.NamespacedName{
+			Name:      modelConfig.Spec.APIKeySecretRef,
+			Namespace: modelConfig.Namespace,
+		}
+
+		if err := a.kube.Get(ctx, secretName, secret); err != nil {
+			if !errors.IsNotFound(err) {
+				return fmt.Errorf("failed to get secret %s: %v", secretName.Name, err)
+			}
+			// Secret already deleted, nothing to do
+		} else {
+			if err := a.kube.Delete(ctx, secret); err != nil {
+				return fmt.Errorf("failed to delete secret %s: %v", secretName.Name, err)
+			}
+			reconcileLog.Info("Deleted secret for ModelConfig", "modelConfig", modelConfig.Name, "secret", secretName.Name)
+		}
+	}
+
+	// Remove finalizer
+	modelConfig.Finalizers = removeFinalizer(modelConfig.Finalizers, finalizerName)
+	if err := a.kube.Update(ctx, modelConfig); err != nil {
+		return fmt.Errorf("failed to remove finalizer: %v", err)
+	}
+
+	return nil
+}
+
+// hasFinalizer checks if a finalizer exists in the list
+func hasFinalizer(finalizers []string, finalizer string) bool {
+	for _, f := range finalizers {
+		if f == finalizer {
+			return true
+		}
+	}
+	return false
+}
+
+// removeFinalizer removes a finalizer from the list
+func removeFinalizer(finalizers []string, finalizer string) []string {
+	var result []string
+	for _, f := range finalizers {
+		if f != finalizer {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha1.ModelConfig, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	status := metav1.ConditionTrue
+	reason := "ModelConfigReconciled"
+	message := ""
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "ModelConfigReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile model config", "modelConfig", modelConfig)
-	} else {
-		status = metav1.ConditionTrue
-		reason = "ModelConfigReconciled"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
@@ -224,7 +338,6 @@ func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, mode
 		Message:            message,
 	})
 
-	// update the status if it has changed or the generation has changed
 	if conditionChanged || modelConfig.Status.ObservedGeneration != modelConfig.Generation {
 		modelConfig.Status.ObservedGeneration = modelConfig.Generation
 		if err := a.kube.Status().Update(ctx, modelConfig); err != nil {
@@ -244,19 +357,14 @@ func (a *autogenReconciler) ReconcileAutogenTeam(ctx context.Context, req ctrl.R
 }
 
 func (a *autogenReconciler) reconcileTeamStatus(ctx context.Context, team *v1alpha1.Team, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	status := metav1.ConditionTrue
+	reason := "TeamReconciled"
+	message := ""
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
-		reconcileLog.Error(err, "failed to reconcile team", "team", team)
 		reason = "TeamReconcileFailed"
-	} else {
-		status = metav1.ConditionTrue
-		reason = "TeamReconciled"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&team.Status.Conditions, metav1.Condition{
@@ -296,10 +404,8 @@ func (a *autogenReconciler) ReconcileAutogenApiKeySecret(ctx context.Context, re
 }
 
 func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req ctrl.Request) error {
-	// reconcile the agent team itself
 	toolServer := &v1alpha1.ToolServer{}
 	if err := a.kube.Get(ctx, req.NamespacedName, toolServer); err != nil {
-		// if the tool server is not found, we can ignore it
 		if errors.IsNotFound(err) {
 			return nil
 		}
@@ -308,27 +414,16 @@ func (a *autogenReconciler) ReconcileAutogenToolServer(ctx context.Context, req 
 
 	serverID, reconcileErr := a.reconcileToolServer(ctx, toolServer)
 
-	// update the tool server status as the agents depend on it
-	if err := a.reconcileToolServerStatus(
-		ctx,
-		toolServer,
-		serverID,
-		reconcileErr,
-	); err != nil {
+	if err := a.reconcileToolServerStatus(ctx, toolServer, serverID, reconcileErr); err != nil {
 		return fmt.Errorf("failed to reconcile tool server %s: %v", req.Name, err)
 	}
 
-	// find and reconcile all agents which use this tool server
 	agents, err := a.findAgentsUsingToolServer(ctx, req)
 	if err != nil {
-		return fmt.Errorf("failed to find teams for agent %s: %v", req.Name, err)
+		return fmt.Errorf("failed to find agents for tool server %s: %v", req.Name, err)
 	}
 
-	if err := a.reconcileAgents(ctx, agents...); err != nil {
-		return fmt.Errorf("failed to reconcile agents for tool server %s: %v", req.Name, err)
-	}
-
-	return nil
+	return a.reconcileAgents(ctx, agents...)
 }
 
 func (a *autogenReconciler) reconcileToolServerStatus(
@@ -342,20 +437,16 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 		err = multierror.Append(err, discoveryErr)
 	}
 
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	status := metav1.ConditionTrue
+	reason := "ToolServerReconciled"
+	message := ""
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
-		reason = "AgentReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", toolServer)
-	} else {
-		status = metav1.ConditionTrue
-		reason = "AgentReconciled"
+		reason = "ToolServerReconcileFailed"
 	}
+
 	conditionChanged := meta.SetStatusCondition(&toolServer.Status.Conditions, metav1.Condition{
 		Type:               v1alpha1.AgentConditionTypeAccepted,
 		Status:             status,
@@ -364,7 +455,6 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 		Message:            message,
 	})
 
-	// only update if the status has changed to prevent looping the reconciler
 	if !conditionChanged &&
 		toolServer.Status.ObservedGeneration == toolServer.Generation &&
 		reflect.DeepEqual(toolServer.Status.DiscoveredTools, discoveredTools) {
@@ -375,7 +465,7 @@ func (a *autogenReconciler) reconcileToolServerStatus(
 	toolServer.Status.DiscoveredTools = discoveredTools
 
 	if err := a.kube.Status().Update(ctx, toolServer); err != nil {
-		return fmt.Errorf("failed to update agent status: %v", err)
+		return fmt.Errorf("failed to update tool server status: %v", err)
 	}
 
 	return nil
@@ -396,19 +486,14 @@ func (a *autogenReconciler) ReconcileAutogenMemory(ctx context.Context, req ctrl
 }
 
 func (a *autogenReconciler) reconcileMemoryStatus(ctx context.Context, memory *v1alpha1.Memory, err error) error {
-	var (
-		status  metav1.ConditionStatus
-		message string
-		reason  string
-	)
+	status := metav1.ConditionTrue
+	reason := "MemoryReconciled"
+	message := ""
+
 	if err != nil {
 		status = metav1.ConditionFalse
 		message = err.Error()
 		reason = "MemoryReconcileFailed"
-		reconcileLog.Error(err, "failed to reconcile memory", "memory", memory)
-	} else {
-		status = metav1.ConditionTrue
-		reason = "MemoryReconciled"
 	}
 
 	conditionChanged := meta.SetStatusCondition(&memory.Status.Conditions, metav1.Condition{
@@ -748,7 +833,6 @@ func (a *autogenReconciler) findAgentsUsingToolServer(ctx context.Context, req c
 	}
 
 	return agents, nil
-
 }
 
 func (a *autogenReconciler) getDiscoveredMCPTools(serverID int) ([]*v1alpha1.MCPTool, error) {
@@ -789,70 +873,6 @@ func convertTool(tool *autogen_client.Tool) (*v1alpha1.MCPTool, error) {
 		Name:      mcpToolConfig.Tool.Name,
 		Component: component,
 	}, nil
-	//
-	//inputSchema, err := convertToAnyType(mcpToolConfig.Tool.InputSchema)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to convert input schema: %v", err)
-	//}
-	//
-	//serverParams := mcpToolConfig.ServerParams
-	//if serverParams == nil {
-	//	return nil, fmt.Errorf("missing server params")
-	//}
-	//serverParamsMap, ok := serverParams.(map[string]interface{})
-	//if !ok {
-	//	return nil, fmt.Errorf("invalid server params")
-	//}
-	//
-	//// if serevr params contains "command", parse it as Stdio, else look for "url" and parse it as Sse
-	//_, hasCommand := serverParamsMap["command"]
-	//_, hasUrl := serverParamsMap["url"]
-	//
-	//var (
-	//	stdio *v1alpha1.StdioMcpServerConfig
-	//	sse   *v1alpha1.SseMcpServerConfig
-	//)
-	//switch {
-	//case hasCommand:
-	//	stdioConfig := &api.StdioMcpServerConfig{}
-	//	if err := unmarshalFromMap(serverParamsMap, stdioConfig); err != nil {
-	//		return nil, fmt.Errorf("failed to unmarshal stdio config: %v", err)
-	//	}
-	//	stderr, ok := stdioConfig.Stderr.(string)
-	//	if !ok {
-	//		stderr = ""
-	//	}
-	//
-	//	stdio = &v1alpha1.StdioMcpServerConfig{
-	//		Command: stdioConfig.Command,
-	//		Args:    stdioConfig.Args,
-	//		Env:     stdioConfig.Env,
-	//		Stderr:  stderr,
-	//		Cwd:     stdioConfig.Cwd,
-	//	}
-	//case hasUrl:
-	//	sseConfig := &api.SseMcpServerConfig{}
-	//	if err := unmarshalFromMap(serverParamsMap, sseConfig); err != nil {
-	//		return nil, fmt.Errorf("failed to unmarshal sse config: %v", err)
-	//	}
-	//
-	//	sse = &v1alpha1.SseMcpServerConfig{
-	//		URL:            sseConfig.URL,
-	//		Headers:        sseConfig.Headers,
-	//		Timeout:        convertTimeout(sseConfig.Timeout),
-	//		SseReadTimeout: convertTimeout(sseConfig.SseReadTimeout),
-	//	}
-	//}
-	//
-	//return &v1alpha1.MCPTool{
-	//	Name:        mcpToolConfig.Tool.Name,
-	//	Description: mcpToolConfig.Tool.Description,
-	//	InputSchema: inputSchema,
-	//	ServerParams: v1alpha1.MCPToolServerParams{
-	//		Stdio: stdio,
-	//		Sse:   sse,
-	//	},
-	//}, nil
 }
 
 func convertComponentToApiType(component *api.Component) (v1alpha1.Component, error) {
