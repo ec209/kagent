@@ -90,12 +90,18 @@ RUN chown -R python:pythongroup /app/python && \
 RUN mkdir -p /app/python/.cache/uv && \
     chown -R python:pythongroup /app/python/.cache
 
-# Install boto3 for AWS Bedrock support
-RUN uv pip install boto3
+# Install boto3 for AWS Bedrock support and LiteLLM with proxy dependencies
+RUN uv pip install boto3 'litellm[proxy]'
+
+# Copy LiteLLM configuration and startup script
+COPY litellm_config.yaml .
+COPY start_services.sh .
+RUN chmod +x start_services.sh
 
 EXPOSE 8081
+EXPOSE 4000
 
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
 LABEL org.opencontainers.image.description="Kagent app is the apiserver for running agents."
 
-CMD ["uv", "run", "kagent-engine", "serve", "--host", "0.0.0.0", "--port", "8081"]
+CMD ["./start_services.sh"]

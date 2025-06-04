@@ -1,0 +1,42 @@
+model_list:
+  # Claude models (commonly available in us-east-1)
+  - model_name: claude-3-haiku
+    litellm_params:
+      model: bedrock/anthropic.claude-3-haiku-20240307-v1:0
+      aws_region_name: us-east-1
+      
+  - model_name: claude-3-sonnet
+    litellm_params:
+      model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
+      aws_region_name: us-east-1
+      
+  - model_name: claude-instant
+    litellm_params:
+      model: bedrock/anthropic.claude-instant-v1
+      aws_region_name: us-east-1
+      
+  # Amazon Titan models
+  - model_name: titan-text-express
+    litellm_params:
+      model: bedrock/amazon.titan-text-express-v1
+      aws_region_name: us-east-1
+      
+  - model_name: titan-text-lite
+    litellm_params:
+      model: bedrock/amazon.titan-text-lite-v1
+      aws_region_name: us-east-1
+      
+  # Meta Llama models
+  - model_name: llama2-13b
+    litellm_params:
+      model: bedrock/meta.llama2-13b-chat-v1
+      aws_region_name: us-east-1
+
+general_settings:
+  master_key: sk-1234  # Change this to a secure key
+  
+litellm_settings:
+  drop_params: true
+  set_verbose: true  # Enable verbose logging to see what's happening
+  modify_params: true  # Allow LiteLLM to modify conversation structure for Bedrock compatibility
+  user_continue_message: "Please continue."  # Default user message when conversation doesn't start with user 
