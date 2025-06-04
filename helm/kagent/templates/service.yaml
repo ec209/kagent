@@ -15,5 +15,9 @@ spec:
       targetPort: {{ .Values.service.ports.app.targetPort }}
       protocol: TCP
       name: app
+    - port: {{ .Values.service.ports.litellm.port }}
+      targetPort: {{ .Values.service.ports.litellm.targetPort }}
+      protocol: TCP
+      name: litellm
   selector:
     {{- include "kagent.selectorLabels" . | nindent 4 }}
