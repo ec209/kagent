@@ -279,27 +279,59 @@ function ModelPageContent() {
   }, [selectedCombinedModel, isEditMode, isEditingName]);
 
   const validateForm = () => {
-    const newErrors: ValidationErrors = { requiredParams: {} };
+    const newErrors: ValidationErrors = {};
 
-    if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
-    if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
+    console.log("🐛 DEBUGGING - validateForm called");
+    console.log("🐛 Form state:", {
+      name,
+      selectedCombinedModel,
+      apiKey: apiKey ? "***filled***" : "empty",
+      secretKey: secretKey ? "***filled***" : "empty",
+      isBedrockSelected,
+      isEditMode,
+      requiredParams: requiredParams.map(p => ({ key: p.key, value: p.value ? "***filled***" : "empty" })),
+      optionalParams: optionalParams.map(p => ({ key: p.key, value: p.value ? "***filled***" : "empty" }))
+    });
+
+    if (!isResourceNameValid(name)) {
+      newErrors.name = "Name must be a valid RFC 1123 subdomain name";
+      console.log("🐛 VALIDATION ERROR: Invalid name", name);
+    }
+    
+    if (!selectedCombinedModel) {
+      newErrors.selectedCombinedModel = "Provider and Model selection is required";
+      console.log("🐛 VALIDATION ERROR: No model selected");
+    }
     
     const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
     if (!isEditMode && !isOllamaNow && !apiKey.trim()) {
       newErrors.apiKey = "API key is required for new models (except Ollama)";
+      console.log("🐛 VALIDATION ERROR: API key required");
     }
 
     // Special validation for Bedrock
     if (isBedrockSelected && !isEditMode && !secretKey.trim()) {
       newErrors.secretKey = "Secret key is required for AWS Bedrock";
+      console.log("🐛 VALIDATION ERROR: Bedrock secret key required");
     }
 
+    // Skip required parameter validation for Bedrock since it has no required parameters
+    if (!isBedrockSelected) {
+      console.log("🐛 Checking required params for non-Bedrock provider");
+      const requiredParamErrors: Record<string, string> = {};
     requiredParams.forEach(param => {
       if (!param.value.trim() && param.key.trim()) {
-        if (!newErrors.requiredParams) newErrors.requiredParams = {};
-        newErrors.requiredParams[param.key] = `${param.key} is required`;
+          requiredParamErrors[param.key] = `${param.key} is required`;
+          console.log("🐛 VALIDATION ERROR: Required param missing", param.key);
+        }
+      });
+      // Only add requiredParams to newErrors if there are actual errors
+      if (Object.keys(requiredParamErrors).length > 0) {
+        newErrors.requiredParams = requiredParamErrors;
       }
-    });
+    } else {
+      console.log("🐛 Skipping required param validation for Bedrock");
+      }
 
     const paramKeys = new Set<string>();
     let duplicateKeyError = false;
@@ -308,6 +340,7 @@ function ModelPageContent() {
       if (key) {
         if (paramKeys.has(key)) {
           duplicateKeyError = true;
+          console.log("🐛 VALIDATION ERROR: Duplicate optional param key", key);
         }
         paramKeys.add(key);
       }
@@ -325,6 +358,11 @@ function ModelPageContent() {
     if (duplicateKeyError) {
       newErrors.optionalParams = "Duplicate optional parameter key detected";
     }
+
+    console.log("🐛 Final validation errors:", newErrors);
+    console.log("🐛 Has errors:", Object.keys(newErrors).length > 0 || 
+        (newErrors.requiredParams && Object.keys(newErrors.requiredParams).length > 0) ||
+        newErrors.optionalParams);
 
     return newErrors;
   };
@@ -350,15 +388,26 @@ function ModelPageContent() {
   };
 
   const handleSubmit = async () => {
+    console.log("🐛 DEBUGGING - handleSubmit called");
     const validationErrors = validateForm();
+    console.log("🐛 Validation errors returned:", validationErrors);
+    console.log("🐛 Error check results:", {
+      "Object.keys(validationErrors).length": Object.keys(validationErrors).length,
+      "validationErrors.requiredParams": validationErrors.requiredParams,
+      "Object.keys(validationErrors.requiredParams || {}).length": Object.keys(validationErrors.requiredParams || {}).length,
+      "validationErrors.optionalParams": validationErrors.optionalParams
+    });
+    
     if (Object.keys(validationErrors).length > 0 || 
         (validationErrors.requiredParams && Object.keys(validationErrors.requiredParams).length > 0) ||
         validationErrors.optionalParams) {
+      console.log("🐛 VALIDATION FAILED - Setting errors and showing toast");
       setErrors(validationErrors);
       toast.error("Please fix the errors in the form");
       return;
     }
 
+    console.log("🐛 VALIDATION PASSED - Proceeding with submission");
     setIsSubmitting(true);
     setError(null);
 
@@ -416,6 +465,18 @@ function ModelPageContent() {
         }
       } else if (finalSelectedProvider.type === "Ollama") {
         payload.ollama = modelParams;
+      } else if (finalSelectedProvider.type === "Bedrock") {
+        // For Bedrock, use the enhanced backend that translates to LiteLLM
+        payload.bedrock = {
+          region: modelParams.region || "us-west-2",
+          maxTokens: modelParams.maxTokens || modelParams.max_tokens || 1024,
+          temperature: modelParams.temperature || "0.7",
+          topP: modelParams.topP || modelParams.top_p || "1.0"
+        };
+        // Send AWS Secret Access Key as top-level secretKey field
+        if (secretKey) {
+          payload.secretKey = secretKey;
+        }
       }
 
       const response = isEditMode && modelId

@@ -12,8 +12,8 @@ export default function StreamingMessage({ message }: StreamingMessageProps) {
 
   const { content: messageContent, source } = message.config;
 
-  // TODO: Decide at some point what we want to filter out
-  if (source === "system" || source === "user_proxy" || source.endsWith("society_of_mind_agent")) {
+  // TODO: Decide at some point what we want to filter out - add null check for source
+  if (source === "system" || source === "user_proxy" || (source && source.endsWith("society_of_mind_agent"))) {
     return null;
   }
 

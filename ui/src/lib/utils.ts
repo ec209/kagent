@@ -74,6 +74,11 @@ export function getRelativeTimeString(date: string | number | Date): string {
 
 // All resource names must be valid RFC 1123 subdomains
 export const isResourceNameValid = (name: string): boolean => {
+  // Check for null or undefined input
+  if (!name || typeof name !== 'string') {
+    return false;
+  }
+  
   // Overall length check (max 253)
   if (name.length > 253) {
     return false;

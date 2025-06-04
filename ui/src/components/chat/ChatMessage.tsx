@@ -27,9 +27,9 @@ export default function ChatMessage({ message, run }: ChatMessageProps) {
 
   const { content: messageContent, source } = message.config;
 
-  // Filter out system messages
+  // Filter out system messages - add null check for source
   // TODO: Decide whether we want to filter out som agent
-  if (source === "system" || source === "user_proxy" || source.endsWith("society_of_mind_agent")) {
+  if (source === "system" || source === "user_proxy" || (source && source.endsWith("society_of_mind_agent"))) {
     return null;
   }
 

@@ -93,8 +93,6 @@ export interface OllamaConfigPayload {
 
 export interface BedrockConfigPayload {
     region?: string;
-    accessKeyId?: string;
-    secretAccessKey?: string;
     temperature?: string;
     topP?: string;
     maxTokens?: number;
@@ -106,6 +104,7 @@ export interface CreateModelConfigPayload {
   provider: Pick<Provider, "name" | "type">;
   model: string;
   apiKey: string;
+  secretKey?: string; // For Bedrock AWS Secret Access Key
   openAI?: OpenAIConfigPayload;
   anthropic?: AnthropicConfigPayload;
   azureOpenAI?: AzureOpenAIConfigPayload;
@@ -117,6 +116,7 @@ export interface UpdateModelConfigPayload {
     provider: Pick<Provider, "name" | "type">;
     model: string;
     apiKey?: string | null;
+    secretKey?: string | null; // For Bedrock AWS Secret Access Key
     openAI?: OpenAIConfigPayload;
     anthropic?: AnthropicConfigPayload;
     azureOpenAI?: AzureOpenAIConfigPayload;
