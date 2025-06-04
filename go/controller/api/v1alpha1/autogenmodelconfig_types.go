@@ -153,10 +153,6 @@ type BedrockConfig struct {
 	// +required
 	Region string `json:"region,omitempty"`
 
-	// AWS Secret Key for authentication
-	// +optional
-	SecretKey string `json:"secretKey,omitempty"`
-
 	// Model ID for specific Bedrock model
 	// +optional
 	ModelID string `json:"modelId,omitempty"`

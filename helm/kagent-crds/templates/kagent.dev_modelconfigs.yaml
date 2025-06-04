@@ -114,9 +114,6 @@ spec:
                   region:
                     description: AWS Region for Bedrock
                     type: string
-                  secretKey:
-                    description: AWS Secret Key for authentication
-                    type: string
                   stopSequences:
                     description: Stop sequences to end generation
                     items:
