@@ -192,3 +192,4 @@ go/bin/
 
 ## Helm
 *.tgz
+aws-values.yaml

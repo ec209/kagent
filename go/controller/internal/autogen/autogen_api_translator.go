@@ -966,71 +966,13 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		}, nil
 
 	case v1alpha1.Bedrock:
-		// For Bedrock, we need to read AWS credentials from the secret and
-		// set them as environment variables so LiteLLM can access them
-		bedrockCredentials, err := a.getBedrockCredentials(ctx, modelConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Bedrock credentials: %v", err)
-		}
-
-		// Get the dummy API key for LiteLLM
-		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
-		if err != nil {
-			return nil, err
-		}
-
-		config := &api.OpenAIClientConfig{
-			BaseOpenAIClientConfig: api.BaseOpenAIClientConfig{
-				Model:  modelConfig.Spec.Model,
-				APIKey: string(apiKey), // This should be "sk-1234" for LiteLLM proxy
-			},
-			// Point to LiteLLM proxy instead of OpenAI
-			BaseURL: func() *string { s := "http://localhost:4000"; return &s }(),
-		}
-
-		if includeUsage {
-			config.StreamOptions = &api.StreamOptions{
-				IncludeUsage: true,
-			}
-		}
-
-		// Add Bedrock-specific configurations that are compatible with LiteLLM
-		if modelConfig.Spec.Bedrock != nil {
-			bedrockConfig := modelConfig.Spec.Bedrock
-
-			if bedrockConfig.MaxTokens > 0 {
-				config.MaxTokens = bedrockConfig.MaxTokens
-			}
-
-			if bedrockConfig.Temperature != "" {
-				temp, err := strconv.ParseFloat(bedrockConfig.Temperature, 64)
-				if err == nil {
-					config.Temperature = temp
-				}
-			}
-
-			if bedrockConfig.TopP != "" {
-				topP, err := strconv.ParseFloat(bedrockConfig.TopP, 64)
-				if err == nil {
-					config.TopP = topP
-				}
-			}
-		}
-
-		// Store credentials in a way that can be accessed when making requests
-		// Since we can't modify the LiteLLM proxy environment directly,
-		// we'll need to implement a different approach
-		reconcileLog.Info("Bedrock credentials available for model",
-			"model", modelConfig.Spec.Model,
-			"hasAccessKey", bedrockCredentials["aws_access_key_id"] != "",
-			"hasSecretKey", bedrockCredentials["aws_secret_access_key"] != "",
-			"region", bedrockCredentials["aws_region_name"])
-
+		// For Bedrock, we use our Python script with per-request credentials
+		// The actual credentials will be passed at runtime
 		return &api.Component{
-			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
+			Provider:      "bedrock-dynamic",
 			ComponentType: "model",
 			Version:       1,
-			Config:        api.MustToConfig(config),
+			Config:        map[string]interface{}{},
 		}, nil
 
 	case v1alpha1.OpenAI:

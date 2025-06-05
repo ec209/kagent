@@ -7,17 +7,13 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ .Values.service.ports.ui.port }}
-      targetPort: {{ .Values.service.ports.ui.targetPort }}
-      protocol: TCP
-      name: ui
-    - port: {{ .Values.service.ports.app.port }}
-      targetPort: {{ .Values.service.ports.app.targetPort }}
+    - port: {{ .Values.app.service.port }}
+      targetPort: http
       protocol: TCP
       name: app
-    - port: {{ .Values.service.ports.litellm.port }}
-      targetPort: {{ .Values.service.ports.litellm.targetPort }}
+    - port: {{ .Values.ui.service.port }}
+      targetPort: http
       protocol: TCP
-      name: litellm
+      name: ui
   selector:
     {{- include "kagent.selectorLabels" . | nindent 4 }}

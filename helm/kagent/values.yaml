@@ -10,12 +10,18 @@ openai:
   apiKey: ""
   secretKey: "OPENAI_API_KEY"
 
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
 controller:
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/controller
-    tag: ""  # Will default to global, then Chart version
+    repository: cr.kagent.dev/kagent-dev/kagent/controller
     pullPolicy: IfNotPresent
+    tag: ""
   resources:
     requests:
       cpu: 100m
@@ -25,27 +31,11 @@ controller:
       memory: 512Mi
   env: {} # Additional environment variables for the controller can be added here
 
-litellm:
-  image:
-    registry: ghcr.io
-    repository: berriai/litellm
-    tag: "main-stable"
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  env: {} # Additional environment variables for LiteLLM can be added here
-
 app:
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/app
-    tag: ""  # Will default to global, then Chart version
+    repository: cr.kagent.dev/kagent-dev/kagent/app
     pullPolicy: IfNotPresent
+    tag: ""
   resources:
     requests:
       cpu: 100m
@@ -54,13 +44,23 @@ app:
       cpu: 1000m
       memory: 1Gi
   env: {} # Additional environment variables for the app can be added here
+  service:
+    type: ClusterIP
+    port: 8081
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
 
 ui:
   image:
-    registry: cr.kagent.dev
-    repository: kagent-dev/kagent/ui
-    tag: ""  # Will default to global, then Chart version
+    repository: cr.kagent.dev/kagent-dev/kagent/ui
     pullPolicy: IfNotPresent
+    tag: ""
   resources:
     requests:
       cpu: 100m
@@ -69,26 +69,38 @@ ui:
       cpu: 1000m
       memory: 1Gi
   env: {} # Additional environment variables for the ui can be added here
-  
+  service:
+    type: ClusterIP
+    port: 80
+  livenessProbe:
+    httpGet:
+      path: /
+      port: http
+  readinessProbe:
+    httpGet:
+      path: /
+      port: http
 
 service:
   type: ClusterIP
-  ports:
-    ui:
-      port: 80
-      targetPort: 80
-    app:
-      port: 8081
-      targetPort: 8081
-    litellm:
-      port: 4000
-      targetPort: 4000
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Automatically mount a ServiceAccount's API credentials?
+  automount: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "kagent"
+
 podAnnotations: {}
+podLabels: {}
 
 podSecurityContext: {}
   # fsGroup: 2000
@@ -100,6 +112,14 @@ securityContext: {}
   # readOnlyRootFilesystem: true
   # runAsNonRoot: true
   # runAsUser: 1000
+
+volumes: []
+
+nodeSelector: {}
+
+affinity: {}
+
+tolerations: []
 
 contrib:
   agents:
