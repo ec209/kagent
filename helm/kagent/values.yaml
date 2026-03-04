@@ -69,7 +69,23 @@ ui:
       cpu: 1000m
       memory: 1Gi
   env: {} # Additional environment variables for the ui can be added here
-  
+
+slackBot:
+  enabled: false  # Set to true to enable Slack integration
+  image:
+    registry: cr.kagent.dev
+    repository: kagent-dev/kagent/slack-bot
+    tag: ""  # Will default to global, then Chart version
+    pullPolicy: IfNotPresent
+  secretName: "kagent-slack"  # Secret containing Slack tokens
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  env: {} # Additional environment variables for the slack bot can be added here
 
 service:
   type: ClusterIP

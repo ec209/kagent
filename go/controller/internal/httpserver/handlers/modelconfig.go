@@ -224,8 +224,6 @@ type CreateModelConfigRequest struct {
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 	BedrockParams   *v1alpha1.BedrockConfig     `json:"bedrock,omitempty"`
-	// SecretKey is used for Bedrock AWS Secret Access Key
-	SecretKey string `json:"secretKey,omitempty"`
 }
 
 type Provider struct {
@@ -275,39 +273,19 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	} else {
 		apiKey := req.APIKey
 		secretName := req.Name
-		secretData := map[string]string{}
+		secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
+		log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
 
-		if providerTypeEnum == v1alpha1.Bedrock {
-			// For Bedrock, store AWS credentials and use LiteLLM proxy API key
-			secretData["BEDROCK_API_KEY"] = "sk-1234" // LiteLLM proxy key
-			if req.APIKey != "" {
-				secretData["AWS_ACCESS_KEY_ID"] = req.APIKey
-			}
-			if req.SecretKey != "" {
-				secretData["AWS_SECRET_ACCESS_KEY"] = req.SecretKey
-			}
-			if req.BedrockParams != nil && req.BedrockParams.Region != "" {
-				secretData["AWS_DEFAULT_REGION"] = req.BedrockParams.Region
-			}
-			secretKey := "BEDROCK_API_KEY"
-			log.V(1).Info("Creating Bedrock secret with AWS credentials", "secretName", secretName, "secretKey", secretKey)
-			modelConfigSpec.APIKeySecretRef = secretName
-			modelConfigSpec.APIKeySecretKey = secretKey
-		} else {
-			// For other providers, use the standard API key approach
-			secretKey := fmt.Sprintf("%s_API_KEY", strings.ToUpper(req.Provider.Type))
-			secretData[secretKey] = apiKey
-			log.V(1).Info("Creating API key secret", "secretName", secretName, "secretKey", secretKey)
-			modelConfigSpec.APIKeySecretRef = secretName
-			modelConfigSpec.APIKeySecretKey = secretKey
-		}
+		
 
 		secret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      secretName,
 				Namespace: common.GetResourceNamespace(),
 			},
-			StringData: secretData,
+			StringData: map[string]string{
+				secretKey: apiKey,
+			},
 		}
 
 		if err := h.KubeClient.Create(r.Context(), secret); err != nil {
@@ -316,13 +294,14 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 			return
 		}
 		log.V(1).Info("Successfully created API key secret")
+		modelConfigSpec.APIKeySecretRef = secretName
+		modelConfigSpec.APIKeySecretKey = secretKey
 	}
 
 	modelConfig := &v1alpha1.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       req.Name,
-			Namespace:  common.GetResourceNamespace(),
-			Finalizers: []string{"modelconfig.kagent.dev/secret-cleanup"},
+			Namespace:  common.GetResourceNamespace()
 		},
 		Spec: modelConfigSpec,
 	}
@@ -364,19 +343,11 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		}
 	case v1alpha1.Bedrock:
 		if req.BedrockParams != nil {
-			// Validate required Bedrock parameters
-			if req.BedrockParams.Region == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: region")
-			} else if req.APIKey == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: apiKey (AWS Access Key ID)")
-			} else if req.SecretKey == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: secretKey (AWS Secret Access Key)")
-			} else {
 				// Store the Bedrock config - the model execution will handle LiteLLM proxy translation
 				modelConfig.Spec.Bedrock = req.BedrockParams
 				log.V(1).Info("Assigned Bedrock params to spec")
 			}
-		} else {
+		else {
 			providerConfigErr = fmt.Errorf("missing required Bedrock parameters")
 		}
 	default:
@@ -424,8 +395,6 @@ type UpdateModelConfigRequest struct {
 	AzureParams     *v1alpha1.AzureOpenAIConfig `json:"azureOpenAI,omitempty"`
 	OllamaParams    *v1alpha1.OllamaConfig      `json:"ollama,omitempty"`
 	BedrockParams   *v1alpha1.BedrockConfig     `json:"bedrock,omitempty"`
-	// SecretKey is used for Bedrock AWS Secret Access Key
-	SecretKey *string `json:"secretKey,omitempty"`
 }
 
 func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *http.Request) {
@@ -555,19 +524,11 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		}
 	case v1alpha1.Bedrock:
 		if req.BedrockParams != nil {
-			// Validate required Bedrock parameters for update
-			if req.BedrockParams.Region == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: region")
-			} else if req.APIKey == nil || *req.APIKey == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: apiKey (AWS Access Key ID)")
-			} else if req.SecretKey == nil || *req.SecretKey == "" {
-				providerConfigErr = fmt.Errorf("missing required Bedrock parameter: secretKey (AWS Secret Access Key)")
-			} else {
 				// Store the Bedrock config - the model execution will handle LiteLLM proxy translation
 				modelConfig.Spec.Bedrock = req.BedrockParams
 				log.V(1).Info("Assigned Bedrock params to spec")
 			}
-		} else {
+		else {
 			log.V(1).Info("No Bedrock params provided in update.")
 		}
 	default:

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/autogen/api"
@@ -17,8 +16,6 @@ import (
 
 	autogen_client "github.com/kagent-dev/kagent/go/autogen/client"
 	"github.com/kagent-dev/kagent/go/controller/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -139,31 +136,6 @@ func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req
 		return fmt.Errorf("failed to get model %s: %v", req.Name, err)
 	}
 
-	// Handle finalizer for secret cleanup
-	const finalizerName = "modelconfig.kagent.dev/secret-cleanup"
-	if modelConfig.DeletionTimestamp != nil {
-		// ModelConfig is being deleted, clean up secrets
-		if err := a.handleModelConfigDeletion(ctx, modelConfig, finalizerName); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// Add finalizer if not present
-	if !hasFinalizer(modelConfig.Finalizers, finalizerName) {
-		modelConfig.Finalizers = append(modelConfig.Finalizers, finalizerName)
-		if err := a.kube.Update(ctx, modelConfig); err != nil {
-			return fmt.Errorf("failed to add finalizer: %v", err)
-		}
-	}
-
-	// If this is a Bedrock model, ensure the kagent deployment has access to the secret
-	if modelConfig.Spec.Provider == v1alpha1.Bedrock {
-		if err := a.reconcileKagentDeploymentForBedrock(ctx, modelConfig); err != nil {
-			return fmt.Errorf("failed to reconcile kagent deployment for Bedrock: %v", err)
-		}
-	}
-
 	agents, err := a.findAgentsUsingModel(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to find agents for model %s: %v", req.Name, err)
@@ -183,140 +155,6 @@ func (a *autogenReconciler) ReconcileAutogenModelConfig(ctx context.Context, req
 		modelConfig,
 		a.reconcileTeams(ctx, teams...),
 	)
-}
-
-// reconcileKagentDeploymentForBedrock ensures the kagent deployment can access Bedrock secrets
-func (a *autogenReconciler) reconcileKagentDeploymentForBedrock(ctx context.Context, modelConfig *v1alpha1.ModelConfig) error {
-	deployment := &appsv1.Deployment{}
-	deploymentRef := types.NamespacedName{Name: "kagent", Namespace: modelConfig.Namespace}
-
-	if err := a.kube.Get(ctx, deploymentRef, deployment); err != nil {
-		if errors.IsNotFound(err) {
-			return nil // kagent deployment not found, skip
-		}
-		return fmt.Errorf("failed to get kagent deployment: %v", err)
-	}
-
-	// Check if secret exists
-	secretRef := types.NamespacedName{Name: modelConfig.Spec.APIKeySecretRef, Namespace: modelConfig.Namespace}
-	if err := a.kube.Get(ctx, secretRef, &corev1.Secret{}); err != nil {
-		if errors.IsNotFound(err) {
-			return nil // secret not found, skip
-		}
-		return fmt.Errorf("failed to get Bedrock secret: %v", err)
-	}
-
-	// Find containers and clean up secret mounting
-	var litellmContainer *corev1.Container
-	deploymentChanged := false
-
-	for i := range deployment.Spec.Template.Spec.Containers {
-		container := &deployment.Spec.Template.Spec.Containers[i]
-
-		if container.Name == "litellm" {
-			litellmContainer = container
-		} else {
-			// Remove Bedrock secrets from non-litellm containers
-			var cleanedEnvFrom []corev1.EnvFromSource
-			for _, envFrom := range container.EnvFrom {
-				if envFrom.SecretRef == nil || envFrom.SecretRef.Name != secretRef.Name {
-					cleanedEnvFrom = append(cleanedEnvFrom, envFrom)
-				} else {
-					deploymentChanged = true
-				}
-			}
-			container.EnvFrom = cleanedEnvFrom
-		}
-	}
-
-	if litellmContainer == nil {
-		return fmt.Errorf("litellm container not found in kagent deployment")
-	}
-
-	// Add secret to litellm container if not present
-	secretExists := false
-	for _, envFrom := range litellmContainer.EnvFrom {
-		if envFrom.SecretRef != nil && envFrom.SecretRef.Name == secretRef.Name {
-			secretExists = true
-			break
-		}
-	}
-
-	if !secretExists {
-		litellmContainer.EnvFrom = append(litellmContainer.EnvFrom, corev1.EnvFromSource{
-			SecretRef: &corev1.SecretEnvSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretRef.Name},
-			},
-		})
-		deploymentChanged = true
-	}
-
-	// Update deployment if changed
-	if deploymentChanged {
-		if deployment.Spec.Template.Annotations == nil {
-			deployment.Spec.Template.Annotations = make(map[string]string)
-		}
-		deployment.Spec.Template.Annotations["kagent.dev/bedrock-secret-update"] = fmt.Sprintf("%d", time.Now().Unix())
-
-		if err := a.kube.Update(ctx, deployment); err != nil {
-			return fmt.Errorf("failed to update kagent deployment: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// handleModelConfigDeletion cleans up secrets when a ModelConfig is deleted
-func (a *autogenReconciler) handleModelConfigDeletion(ctx context.Context, modelConfig *v1alpha1.ModelConfig, finalizerName string) error {
-	// Delete the associated secret
-	if modelConfig.Spec.APIKeySecretRef != "" {
-		secret := &corev1.Secret{}
-		secretName := types.NamespacedName{
-			Name:      modelConfig.Spec.APIKeySecretRef,
-			Namespace: modelConfig.Namespace,
-		}
-
-		if err := a.kube.Get(ctx, secretName, secret); err != nil {
-			if !errors.IsNotFound(err) {
-				return fmt.Errorf("failed to get secret %s: %v", secretName.Name, err)
-			}
-			// Secret already deleted, nothing to do
-		} else {
-			if err := a.kube.Delete(ctx, secret); err != nil {
-				return fmt.Errorf("failed to delete secret %s: %v", secretName.Name, err)
-			}
-			reconcileLog.Info("Deleted secret for ModelConfig", "modelConfig", modelConfig.Name, "secret", secretName.Name)
-		}
-	}
-
-	// Remove finalizer
-	modelConfig.Finalizers = removeFinalizer(modelConfig.Finalizers, finalizerName)
-	if err := a.kube.Update(ctx, modelConfig); err != nil {
-		return fmt.Errorf("failed to remove finalizer: %v", err)
-	}
-
-	return nil
-}
-
-// hasFinalizer checks if a finalizer exists in the list
-func hasFinalizer(finalizers []string, finalizer string) bool {
-	for _, f := range finalizers {
-		if f == finalizer {
-			return true
-		}
-	}
-	return false
-}
-
-// removeFinalizer removes a finalizer from the list
-func removeFinalizer(finalizers []string, finalizer string) []string {
-	var result []string
-	for _, f := range finalizers {
-		if f != finalizer {
-			result = append(result, f)
-		}
-	}
-	return result
 }
 
 func (a *autogenReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha1.ModelConfig, err error) error {

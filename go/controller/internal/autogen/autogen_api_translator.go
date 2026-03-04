@@ -966,13 +966,7 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 		}, nil
 
 	case v1alpha1.Bedrock:
-		// For Bedrock, we need to read AWS credentials from the secret and
-		// set them as environment variables so LiteLLM can access them
-		bedrockCredentials, err := a.getBedrockCredentials(ctx, modelConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get Bedrock credentials: %v", err)
-		}
-
+		// Double check if we need apiKey and why do we need OpenAIClientConfig
 		// Get the dummy API key for LiteLLM
 		apiKey, err := a.getModelConfigApiKey(ctx, modelConfig)
 		if err != nil {
@@ -1016,15 +1010,6 @@ func (a *apiTranslator) createModelClientForProvider(ctx context.Context, modelC
 				}
 			}
 		}
-
-		// Store credentials in a way that can be accessed when making requests
-		// Since we can't modify the LiteLLM proxy environment directly,
-		// we'll need to implement a different approach
-		reconcileLog.Info("Bedrock credentials available for model",
-			"model", modelConfig.Spec.Model,
-			"hasAccessKey", bedrockCredentials["aws_access_key_id"] != "",
-			"hasSecretKey", bedrockCredentials["aws_secret_access_key"] != "",
-			"region", bedrockCredentials["aws_region_name"])
 
 		return &api.Component{
 			Provider:      "autogen_ext.models.openai.OpenAIChatCompletionClient",
@@ -1182,48 +1167,6 @@ func (a *apiTranslator) getModelConfigApiKey(ctx context.Context, modelConfig *v
 	}
 
 	return modelApiKey, nil
-}
-
-// getBedrockCredentials reads AWS credentials from the Bedrock secret
-func (a *apiTranslator) getBedrockCredentials(ctx context.Context, modelConfig *v1alpha1.ModelConfig) (map[string]string, error) {
-	// get model api key secret which contains AWS credentials for Bedrock
-	modelApiKeySecret := &v1.Secret{}
-	err := fetchObjKube(
-		ctx,
-		a.kube,
-		modelApiKeySecret,
-		modelConfig.Spec.APIKeySecretRef,
-		modelConfig.Namespace,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if modelApiKeySecret.Data == nil {
-		return nil, fmt.Errorf("model api key secret data not found")
-	}
-
-	credentials := make(map[string]string)
-
-	// Read AWS credentials from the secret
-	if accessKeyID, ok := modelApiKeySecret.Data["AWS_ACCESS_KEY_ID"]; ok {
-		credentials["aws_access_key_id"] = string(accessKeyID)
-	}
-
-	if secretAccessKey, ok := modelApiKeySecret.Data["AWS_SECRET_ACCESS_KEY"]; ok {
-		credentials["aws_secret_access_key"] = string(secretAccessKey)
-	}
-
-	if region, ok := modelApiKeySecret.Data["AWS_DEFAULT_REGION"]; ok {
-		credentials["aws_region_name"] = string(region)
-	}
-
-	// Verify we have the required credentials
-	if credentials["aws_access_key_id"] == "" || credentials["aws_secret_access_key"] == "" {
-		return nil, fmt.Errorf("missing required AWS credentials in secret")
-	}
-
-	return credentials, nil
 }
 
 func getRefFromString(ref string, parentNamespace string) types.NamespacedName {

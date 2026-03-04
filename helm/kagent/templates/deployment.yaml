@@ -56,11 +56,11 @@ spec:
             # Default AWS region (can be overridden by mounted secrets)
             - name: AWS_DEFAULT_REGION
               value: "us-east-1"
-          {{- with .Values.litellm.env }}
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          # EnvFrom will be populated dynamically by the controller for Bedrock secrets
-          envFrom: []
+          # Add support for loading AWS credentials from an env file (e.g., a secret or configmap)
+          # To use, create a secret or configmap with AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc., and reference it here.
+          envFrom:
+            - secretRef:
+                name: aws-credentials   # <-- create this secret with your AWS credentials
           volumeMounts:
             - name: litellm-config
               mountPath: /config
@@ -143,6 +143,56 @@ spec:
               protocol: TCP
           resources:
             {{- toYaml .Values.ui.resources | nindent 12 }}
+        {{- if .Values.slackBot.enabled }}
+        - name: slack-bot
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.slackBot.image.registry }}/{{ .Values.slackBot.image.repository }}:{{ coalesce .Values.global.tag .Values.slackBot.image.tag .Chart.Version }}"
+          imagePullPolicy: {{ .Values.slackBot.image.pullPolicy }}
+          env:
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.secretName }}
+                  key: bot-token
+            - name: SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.secretName }}
+                  key: signing-secret
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.slackBot.secretName }}
+                  key: app-token
+            - name: KAGENT_API_URL
+              value: "http://localhost:8081"
+            - name: KAGENT_CLI_PATH
+              value: "/usr/local/bin/kagent"
+            - name: PORT
+              value: "3000"
+          {{- with .Values.slackBot.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.slackBot.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+        {{- end }}
       volumes:
         - name: litellm-config
           configMap:

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/autogen/client"
@@ -82,17 +83,29 @@ func (h *ModelHandler) queryLiteLLMModels() ([]client.ModelInfo, error) {
 
 // supportsFunctionCalling determines if a model supports function calling based on its name
 func (h *ModelHandler) supportsFunctionCalling(modelName string) bool {
-	// Claude models typically support function calling
+	// Claude models (Anthropic) support function calling
 	if len(modelName) >= 6 && modelName[:6] == "claude" {
 		return true
 	}
-	// Titan models typically don't support function calling
+	// Titan models (Amazon) don't support function calling
 	if len(modelName) >= 5 && modelName[:5] == "titan" {
 		return false
 	}
-	// Llama models may or may not support function calling - conservative approach
+	// Llama models (Meta) - check for specific versions that support function calling
 	if len(modelName) >= 5 && modelName[:5] == "llama" {
+		// Llama 2 70B and newer versions support function calling
+		if strings.Contains(modelName, "70b") || strings.Contains(modelName, "llama-3") {
+			return true
+		}
 		return false
+	}
+	// Mistral models support function calling
+	if len(modelName) >= 7 && modelName[:7] == "mistral" {
+		return true
+	}
+	// Cohere models support function calling
+	if len(modelName) >= 6 && modelName[:6] == "cohere" {
+		return true
 	}
 	// Default to false for unknown models to be conservative
 	return false

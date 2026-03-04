@@ -18,6 +18,11 @@ data:
           model: bedrock/anthropic.claude-3-sonnet-20240229-v1:0
           aws_region_name: us-east-1
           
+      - model_name: claude-3-opus
+        litellm_params:
+          model: bedrock/anthropic.claude-3-opus-20240229-v1:0
+          aws_region_name: us-east-1
+          
       - model_name: claude-instant
         litellm_params:
           model: bedrock/anthropic.claude-instant-v1
@@ -34,10 +39,62 @@ data:
           model: bedrock/amazon.titan-text-lite-v1
           aws_region_name: us-east-1
           
+      - model_name: titan-embed-text
+        litellm_params:
+          model: bedrock/amazon.titan-embed-text-v1
+          aws_region_name: us-east-1
+          
       # Meta Llama models
       - model_name: llama2-13b
         litellm_params:
           model: bedrock/meta.llama2-13b-chat-v1
+          aws_region_name: us-east-1
+          
+      - model_name: llama2-70b
+        litellm_params:
+          model: bedrock/meta.llama2-70b-chat-v1
+          aws_region_name: us-east-1
+          
+      - model_name: llama2-7b
+        litellm_params:
+          model: bedrock/meta.llama2-7b-chat-v1
+          aws_region_name: us-east-1
+          
+      # Cohere models
+      - model_name: command
+        litellm_params:
+          model: bedrock/cohere.command-text-v14
+          aws_region_name: us-east-1
+          
+      - model_name: command-light
+        litellm_params:
+          model: bedrock/cohere.command-light-text-v14
+          aws_region_name: us-east-1
+          
+      - model_name: embed-english
+        litellm_params:
+          model: bedrock/cohere.embed-english-v3
+          aws_region_name: us-east-1
+          
+      - model_name: embed-multilingual
+        litellm_params:
+          model: bedrock/cohere.embed-multilingual-v3
+          aws_region_name: us-east-1
+          
+      # Mistral models
+      - model_name: mistral-7b
+        litellm_params:
+          model: bedrock/mistral.mistral-7b-instruct-v0:2
+          aws_region_name: us-east-1
+          
+      - model_name: mistral-large
+        litellm_params:
+          model: bedrock/mistral.mistral-large-2402-v1:0
+          aws_region_name: us-east-1
+          
+      - model_name: mistral-small
+        litellm_params:
+          model: bedrock/mistral.mistral-small-2402-v1:0
           aws_region_name: us-east-1
 
     general_settings:

@@ -183,11 +183,26 @@ The project uses a comprehensive Makefile with targets for:
 
 ## Integration Points
 
-- **AWS Bedrock**: Native support for AWS Bedrock models
+- **AWS Bedrock**: Via external LiteLLM proxy with IRSA for secure access
 - **OpenAI**: Primary LLM provider support
+- **LiteLLM Proxy**: External service handling multi-provider LLM access
 - **Kubernetes**: Full CRD and operator pattern implementation
 - **Autogen**: Built on Microsoft's Autogen framework
 - **MCP**: Model Context Protocol server support
+
+## Architecture Principles
+
+### LLM Provider Integration
+Kagent follows a **proxy-based architecture** for LLM access:
+
+```
+Kagent Controller → External LiteLLM Proxy → AWS Bedrock/OpenAI/etc.
+```
+
+**Benefits:**
+- 🔒 **Secure**: LiteLLM handles credentials via IRSA
+- 🏗️ **Scalable**: LiteLLM scales independently
+- 🧹 **Clean**: Kagent focuses on orchestration, not LLM specifics
 
 ## Configuration Management
 

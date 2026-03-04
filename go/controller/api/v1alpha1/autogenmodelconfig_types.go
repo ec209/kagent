@@ -149,10 +149,6 @@ type OllamaConfig struct {
 
 // BedrockConfig contains AWS Bedrock-specific configuration options
 type BedrockConfig struct {
-	// AWS Region for Bedrock
-	// +required
-	Region string `json:"region,omitempty"`
-
 	// Model ID for specific Bedrock model
 	// +optional
 	ModelID string `json:"modelId,omitempty"`

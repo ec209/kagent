@@ -192,3 +192,9 @@ go/bin/
 
 ## Helm
 *.tgz
+kagent-*.tgz
+kagent-crds-*.tgz
+
+## Local development artifacts
+aws-values.yaml
+ToDos.md

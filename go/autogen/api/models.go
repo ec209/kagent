@@ -113,9 +113,6 @@ type BedrockCreateArguments struct {
 }
 
 type BedrockClientConfiguration struct {
-	APIKey            string            `json:"api_key,omitempty"`
-	SecretKey         string            `json:"secret_key,omitempty"`
-	Region            string            `json:"region,omitempty"`
 	Model             string            `json:"model"`
 	ModelID           string            `json:"model_id,omitempty"`
 	ModelCapabilities *ModelInfo        `json:"model_capabilities,omitempty"`

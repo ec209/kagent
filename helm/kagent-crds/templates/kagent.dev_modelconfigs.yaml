@@ -111,9 +111,6 @@ spec:
                   modelId:
                     description: Model ID for specific Bedrock model
                     type: string
-                  region:
-                    description: AWS Region for Bedrock
-                    type: string
                   stopSequences:
                     description: Stop sequences to end generation
                     items:
@@ -128,8 +125,6 @@ spec:
                   topP:
                     description: Top-p sampling parameter
                     type: string
-                required:
-                - region
                 type: object
               model:
                 type: string
